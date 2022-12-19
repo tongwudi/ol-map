@@ -41,15 +41,19 @@
     <!-- 弹框-新增 -->
     <m-dialog className="add-dialog" title="新增" :visible.sync="addModalShow">
       <el-form ref="form" :model="form" label-width="auto">
-        <el-form-item label="区域名称">
-          <el-input v-model="form.areaName" placeholder="请输入区域名称" />
+        <el-form-item label="区域名称" prop="areaName">
+          <el-input
+            v-model.trim="form.areaName"
+            placeholder="请输入区域名称"
+            clearable
+          />
         </el-form-item>
         <el-form-item label="绘制形状">
           <el-tag
             v-for="(item, index) in shapes"
             :key="index"
-            :class="{ active: isShape === index }"
-            @click="isShape = index"
+            :class="{ active: shapeType === item.type }"
+            @click="changeShape(item.type)"
           >
             <img :src="item.shapePath" alt="" />
           </el-tag>
@@ -60,7 +64,7 @@
         <div class="divider"></div>
         <el-row :gutter="20">
           <el-col :span="13">
-            <el-form-item label="边框颜色">
+            <el-form-item label="边框颜色" prop="borderColorText">
               <el-input v-model="form.borderColorText" disabled>
                 <el-color-picker
                   slot="suffix"
@@ -71,20 +75,31 @@
             </el-form-item>
           </el-col>
           <el-col :span="11">
-            <el-form-item label="边框透明度">
-              <el-input v-model="form.areaOutsideOpacity" />
+            <el-form-item label="边框透明度" prop="areaOutsideOpacity">
+              <el-input-number
+                style="width: 100%"
+                controls-position="right"
+                v-model="form.areaOutsideOpacity"
+                :min="1"
+                :max="100"
+              />
+              <!-- <el-input v-model.trim="form.areaOutsideOpacity" /> -->
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="边框样式">
-          <el-select v-model="form.areaOutsideStyle" placeholder="请选择">
-            <el-option label="solid" value="实线" />
-            <el-option label="dashed" value="虚线" />
+        <el-form-item label="边框样式" prop="areaOutsideStyle">
+          <el-select
+            style="width: 150px"
+            v-model="form.areaOutsideStyle"
+            placeholder="请选择"
+          >
+            <el-option label="实线" value="solid" />
+            <el-option label="虚线" value="dashed" />
           </el-select>
         </el-form-item>
         <el-row :gutter="20">
           <el-col :span="13">
-            <el-form-item label="填充颜色">
+            <el-form-item label="填充颜色" prop="fillColorText">
               <el-input v-model="form.fillColorText" disabled>
                 <el-color-picker
                   slot="suffix"
@@ -95,15 +110,22 @@
             </el-form-item>
           </el-col>
           <el-col :span="11">
-            <el-form-item label="填充透明度">
-              <el-input v-model="form.areaInsideOpacity" />
+            <el-form-item label="填充透明度" prop="areaInsideOpacity">
+              <el-input-number
+                style="width: 100%"
+                controls-position="right"
+                v-model="form.areaInsideOpacity"
+                :min="1"
+                :max="100"
+              />
+              <!-- <el-input v-model.trim="form.areaInsideOpacity" /> -->
             </el-form-item>
           </el-col>
         </el-row>
         <div class="divider"></div>
         <el-form-item label-width="0" style="text-align: center">
-          <el-button type="primary">保存</el-button>
-          <el-button type="info">取消</el-button>
+          <el-button type="primary" @click="save">保存</el-button>
+          <el-button type="info" @click="cancel">取消</el-button>
         </el-form-item>
       </el-form>
     </m-dialog>
@@ -112,13 +134,17 @@
 
 <script>
 import mDialog from '@/components/m-dialog.vue'
+import { Vector as LayerVector } from 'ol/layer'
+import { Vector as SourceVector } from 'ol/source'
+import { Draw } from 'ol/interaction'
+import { Style, Stroke, Fill } from 'ol/style'
+import { getAreaList, getByRegion, saveArea } from '@/api/index'
+
 export default {
-  components: {
-    mDialog
-  },
-  inject: ['getMap'],
+  components: { mDialog },
   data() {
     return {
+      alarmModuleShow: false,
       tabledata: [
         { areaName: 'fd' },
         { areaName: 'fd' },
@@ -131,32 +157,185 @@ export default {
         { areaName: 'fd' },
         { areaName: 'fd' }
       ],
+      pagination: {
+        pageNum: 1,
+        pageSize: 5,
+        pager: 0
+      },
       hideAll: false,
-      alarmModuleShow: true,
-      addModalShow: false,
-      form: {},
+      addModalShow: true,
+      form: {
+        borderColorText: '#445DA7',
+        areaOutsideOpacity: 100,
+        areaOutsideStyle: 'solid',
+        fillColorText: '#445DA7',
+        areaInsideOpacity: 100
+      },
       shapes: [
-        { shapePath: require('@/assets/image/polygon.png') },
-        { shapePath: require('@/assets/image/circle.png') }
+        { type: 'Polygon', shapePath: require('@/assets/image/polygon.png') },
+        { type: 'Circle', shapePath: require('@/assets/image/circle.png') }
       ],
-      isShape: false
+      shapeType: '',
+      source: new SourceVector(),
+      vectorLayer: null,
+      interaction: null,
+      featureTemp: null,
+      areaScope: [],
+      areaScopeType: 1,
+      radius: ''
     }
   },
+  inject: ['getMap'],
   computed: {
     map() {
       return this.getMap()
     }
+  },
+  mounted() {
+    this.getAreaPage()
+    this.getYJRegion()
   },
   methods: {
     alarmRegionClick() {
       // console.log(1, this.map)
       this.alarmModuleShow = true
     },
-    addArea() {
-      this.addModalShow = true
+    async getAreaPage() {
+      const { pageNum, pageSize } = this.pagination
+      const res = await getAreaList({ pageNum, pageSize })
+      console.log(res)
     },
     handleSelectionChange() {},
-    handleDelete(row) {}
+    handleDelete(row) {},
+    addArea() {
+      this.reset()
+      this.addModalShow = true
+    },
+    changeShape(type) {
+      this.shapeType = type
+      this.draw(type)
+    },
+    async getYJRegion() {
+      const res = await getByRegion()
+      console.log(res)
+      this.initVectorLayer()
+    },
+    // 实例化一个矢量图层Vector作为绘制层
+    initVectorLayer() {
+      if (this.vectorLayer) return
+      this.vectorLayer = new LayerVector({
+        source: this.source,
+        // 图形绘制完成样式
+        style: new Style({
+          // 笔触样式
+          stroke: new Stroke({
+            color: 'green',
+            width: 2
+          }),
+          // 填充样式
+          fill: new Fill({
+            color: 'crimson'
+          })
+        }),
+        zIndex: 1
+      })
+      // 将矢量图层加载到 map 中
+      this.map.addLayer(this.vectorLayer)
+    },
+    draw(type) {
+      // 重选绘制形状
+      if (this.interaction != undefined && this.interaction != null) {
+        this.map.removeInteraction(this.interaction)
+      }
+      this.interaction = new Draw({
+        source: this.source,
+        // 多边形环或线串完成之前可以绘制的点数。默认情况下没有限制。
+        // maxPoints: 5,
+        type: type,
+        // 图形绘制时样式
+        style: new Style({
+          stroke: new Stroke({
+            width: 2,
+            color: 'skyblue'
+          }),
+          fill: new Fill({
+            color: [248, 172, 166, 0.11]
+          })
+        })
+      })
+      this.map.addInteraction(this.interaction)
+
+      this.interaction.on('drawstart', (e) => {
+        if (this.featureTemp) {
+          this.source.removeFeature(this.featureTemp)
+        }
+      })
+      this.interaction.on('drawend', (e) => {
+        this.featureTemp = e.feature
+        this.areaScopeType = type === 'Polygon' ? 1 : 2
+
+        if (type === 'Polygon') {
+          let arr = e.feature
+            .clone()
+            .getGeometry()
+            .transform('EPSG:3857', 'EPSG:4326')
+            .getCoordinates()[0]
+          console.log('arr=>', arr, e.feature)
+          this.areaScope = arr.map((item) => {
+            return {
+              longitude: item[0],
+              latitude: item[1]
+            }
+          })
+          this.radius = ''
+        } else {
+          // 获取圆心
+          let arr = e.feature
+            .clone()
+            .getGeometry()
+            .transform('EPSG:3857', 'EPSG:4326')
+            .getCenter()
+          this.areaScope = [
+            {
+              longitude: arr[0],
+              latitude: arr[1]
+            }
+          ]
+          console.log('圆心=>', this.areaScope)
+          // 获取半径，只有圆才有值
+          this.radius = e.feature.getGeometry().getRadius()
+          console.log('半径=>', this.radius)
+        }
+      })
+    },
+    async save() {
+      if (this.interaction != undefined && this.interaction != null) {
+        this.map.removeInteraction(this.interaction)
+      }
+      const { areaScope, areaScopeType, radius } = this
+      const params = {
+        ...this.form,
+        areaScope: JSON.stringify(areaScope),
+        areaScopeType,
+        radius
+      }
+      const res = await saveArea(params)
+      console.log('save', res)
+    },
+    cancel() {
+      this.reset()
+      // if (this.featureTemp) {
+      //   this.source.removeFeature(this.featureTemp)
+      // }
+      // if (this.interaction != undefined && this.interaction != null) {
+      //   this.map.removeInteraction(this.interaction)
+      // }
+      // this.addModalShow = false
+    },
+    reset() {
+      this.shapeType = ''
+      this.$refs.form.resetFields()
+    }
   }
 }
 </script>
@@ -251,10 +430,10 @@ export default {
     padding: 0 17px;
     border-radius: 2px;
     background: #99a3ae;
-    color: #000;
+    color: #293038;
     &:focus,
     &:hover {
-      color: #000;
+      color: #293038;
     }
   }
 }

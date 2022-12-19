@@ -71,9 +71,11 @@
     color: #fff;
   }
 }
-.el-input.is-disabled .el-input__inner {
+.el-input.is-disabled .el-input__inner,
+.el-input-number__decrease,
+.el-input-number__increase {
   background-color: transparent;
-  border-color: #1acbfe;
+  border-color: #1acbfe !important;
   color: #fff;
 }
 
