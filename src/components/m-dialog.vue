@@ -34,6 +34,7 @@ export default {
   methods: {
     close() {
       this.$emit('update:visible', false)
+      this.$emit('close')
     }
   }
 }

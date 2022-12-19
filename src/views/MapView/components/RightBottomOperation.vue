@@ -11,7 +11,7 @@
       :visible.sync="alarmModuleShow"
     >
       <el-row type="flex" class="dialog-operation">
-        <el-button type="primary" plain @click="addArea">
+        <el-button type="primary" plain @click="addAreaClick">
           <i class="icon-add"></i>
           <span>新增</span>
         </el-button>
@@ -39,7 +39,12 @@
     </m-dialog>
 
     <!-- 弹框-新增 -->
-    <m-dialog className="add-dialog" title="新增" :visible.sync="addModalShow">
+    <m-dialog
+      className="add-dialog"
+      title="新增"
+      :visible.sync="addAreaShow"
+      @close="cancel"
+    >
       <el-form ref="form" :model="form" label-width="auto">
         <el-form-item label="区域名称" prop="areaName">
           <el-input
@@ -163,7 +168,7 @@ export default {
         pager: 0
       },
       hideAll: false,
-      addModalShow: true,
+      addAreaShow: false,
       form: {
         borderColorText: '#445DA7',
         areaOutsideOpacity: 100,
@@ -207,9 +212,8 @@ export default {
     },
     handleSelectionChange() {},
     handleDelete(row) {},
-    addArea() {
-      this.reset()
-      this.addModalShow = true
+    addAreaClick() {
+      this.addAreaShow = true
     },
     changeShape(type) {
       this.shapeType = type
@@ -323,18 +327,16 @@ export default {
       console.log('save', res)
     },
     cancel() {
-      this.reset()
-      // if (this.featureTemp) {
-      //   this.source.removeFeature(this.featureTemp)
-      // }
-      // if (this.interaction != undefined && this.interaction != null) {
-      //   this.map.removeInteraction(this.interaction)
-      // }
-      // this.addModalShow = false
-    },
-    reset() {
       this.shapeType = ''
-      this.$refs.form.resetFields()
+      if (this.featureTemp) {
+        this.source.removeFeature(this.featureTemp)
+      }
+      if (this.interaction != undefined && this.interaction != null) {
+        this.map.removeInteraction(this.interaction)
+      }
+      if (this.$refs.form) {
+        this.$refs.form.resetFields()
+      }
     }
   }
 }
