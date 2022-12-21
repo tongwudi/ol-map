@@ -55,7 +55,7 @@ export default {
   }
   .legend {
     position: absolute;
-    left: calc(38px + 20px);
+    left: calc(38px + 10px);
     bottom: -5px;
     background-size: 100% 100%;
     &-1 {

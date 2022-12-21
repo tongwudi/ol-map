@@ -108,14 +108,18 @@
 
 .el-tag {
   height: 42px;
-  padding: 0 38px;
-  background-color: transparent;
-  border-color: #1acbfe;
+  line-height: 42px;
+  font-size: 16px;
   color: #fff;
   transition: border-color 0.2s;
   cursor: pointer;
-  &:hover {
-    border-color: #fff;
+  &--light {
+    padding: 0 38px;
+    background-color: transparent;
+    border-color: #1acbfe;
+    &:hover {
+      border-color: #fff;
+    }
   }
   &.active {
     border-color: #fff;
@@ -127,5 +131,9 @@
   }
   & + .el-tag {
     margin-left: 15px;
+  }
+  &--dark {
+    background-color: rgba(25, 90, 252, 0.6);
+    border-color: rgba(25, 90, 252, 0.6);
   }
 }

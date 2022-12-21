@@ -1,7 +1,7 @@
 <template>
   <div class="section">
     <span class="click-active alarm-region" @click="alarmRegionClick"></span>
-    <span class="click-active alarm-icon1"></span>
+    <span class="click-active alarm-icon1" @click="alarmClick"></span>
     <span class="click-active alarm-icon2"></span>
 
     <!-- 弹框-报警模块 -->
@@ -10,7 +10,12 @@
       title="报警模块"
       :visible.sync="alarmModuleShow"
     >
-      <el-row type="flex" class="dialog-operation">
+      <el-row
+        type="flex"
+        align="center"
+        justify="space-between"
+        class="dialog-operation"
+      >
         <el-button type="primary" plain @click="addAreaClick">
           <i class="icon-add"></i>
           <span>新增</span>
@@ -20,7 +25,7 @@
         </div>
       </el-row>
       <div class="dialog-table">
-        <el-table :data="tabledata" @selection-change="handleSelectionChange">
+        <el-table :data="tableData" @selection-change="handleSelectionChange">
           <el-table-column type="selection" align="center" width="60px" />
           <el-table-column prop="areaName" label="名称" align="center" />
           <el-table-column label="操作" align="center" width="110px">
@@ -45,7 +50,7 @@
       :visible.sync="addAreaShow"
       @close="cancel"
     >
-      <el-form ref="form" :model="form" label-width="auto">
+      <el-form ref="form" :model="form" :rules="rules" label-width="auto">
         <el-form-item label="区域名称" prop="areaName">
           <el-input
             v-model.trim="form.areaName"
@@ -53,7 +58,8 @@
             clearable
           />
         </el-form-item>
-        <el-form-item label="绘制形状">
+        <el-form-item label="绘制形状" prop="areaScopeType">
+          <el-input v-show="false" v-model="form.areaScopeType" disabled />
           <el-tag
             v-for="(item, index) in shapes"
             :key="index"
@@ -129,28 +135,38 @@
         </el-row>
         <div class="divider"></div>
         <el-form-item label-width="0" style="text-align: center">
-          <el-button type="primary" @click="save">保存</el-button>
+          <el-button type="primary" @click="save('form')">保存</el-button>
           <el-button type="info" @click="cancel">取消</el-button>
         </el-form-item>
       </el-form>
     </m-dialog>
+
+    <!-- 弹框-报警列表 -->
+    <AlarmDialog :visible.sync="alarmShow" />
   </div>
 </template>
 
 <script>
 import mDialog from '@/components/m-dialog.vue'
-import { Vector as LayerVector } from 'ol/layer'
-import { Vector as SourceVector } from 'ol/source'
-import { Draw } from 'ol/interaction'
-import { Style, Stroke, Fill } from 'ol/style'
+import AlarmDialog from './AlarmDialog.vue'
+import { initDraw, drawGraph, removeInteraction } from '@/utils/map'
 import { getAreaList, getByRegion, saveArea } from '@/api/index'
 
 export default {
-  components: { mDialog },
+  components: { mDialog, AlarmDialog },
   data() {
+    var validAreaScopeType = (rule, value, callback) => {
+      if (!value) {
+        callback(new Error('请选择绘制形状'))
+      } else if (this.areaScope.length === 0) {
+        callback(new Error('请绘制区域'))
+      } else {
+        callback()
+      }
+    }
     return {
       alarmModuleShow: false,
-      tabledata: [
+      tableData: [
         { areaName: 'fd' },
         { areaName: 'fd' },
         { areaName: 'fd' },
@@ -176,44 +192,45 @@ export default {
         fillColorText: '#445DA7',
         areaInsideOpacity: 100
       },
+      rules: {
+        areaName: [
+          { required: true, message: '请输入区域名称', trigger: 'blur' }
+        ],
+        areaScopeType: [{ validator: validAreaScopeType, trigger: 'blur' }],
+        borderColorText: [
+          { required: true, message: '请选择边框颜色', trigger: 'blur' }
+        ],
+        fillColorText: [
+          { required: true, message: '请选择填充颜色', trigger: 'blur' }
+        ]
+      },
       shapes: [
         { type: 'Polygon', shapePath: require('@/assets/image/polygon.png') },
         { type: 'Circle', shapePath: require('@/assets/image/circle.png') }
       ],
       shapeType: '',
-      source: new SourceVector(),
-      vectorLayer: null,
-      interaction: null,
-      featureTemp: null,
       areaScope: [],
-      areaScopeType: 1,
-      radius: ''
-    }
-  },
-  inject: ['getMap'],
-  computed: {
-    map() {
-      return this.getMap()
+      radius: '',
+      alarmShow: false
     }
   },
   mounted() {
-    this.getAreaPage()
-    this.getYJRegion()
+    // this.getAreaPage()
+    // this.getYJRegion()
   },
   methods: {
     alarmRegionClick() {
-      // console.log(1, this.map)
       this.alarmModuleShow = true
     },
     async getAreaPage() {
       const { pageNum, pageSize } = this.pagination
       const res = await getAreaList({ pageNum, pageSize })
-      console.log(res)
     },
     handleSelectionChange() {},
     handleDelete(row) {},
     addAreaClick() {
       this.addAreaShow = true
+      initDraw()
     },
     changeShape(type) {
       this.shapeType = type
@@ -222,121 +239,50 @@ export default {
     async getYJRegion() {
       const res = await getByRegion()
       console.log(res)
-      this.initVectorLayer()
-    },
-    // 实例化一个矢量图层Vector作为绘制层
-    initVectorLayer() {
-      if (this.vectorLayer) return
-      this.vectorLayer = new LayerVector({
-        source: this.source,
-        // 图形绘制完成样式
-        style: new Style({
-          // 笔触样式
-          stroke: new Stroke({
-            color: 'green',
-            width: 2
-          }),
-          // 填充样式
-          fill: new Fill({
-            color: 'crimson'
-          })
-        }),
-        zIndex: 1
-      })
-      // 将矢量图层加载到 map 中
-      this.map.addLayer(this.vectorLayer)
     },
     draw(type) {
-      // 重选绘制形状
-      if (this.interaction != undefined && this.interaction != null) {
-        this.map.removeInteraction(this.interaction)
-      }
-      this.interaction = new Draw({
-        source: this.source,
-        // 多边形环或线串完成之前可以绘制的点数。默认情况下没有限制。
-        // maxPoints: 5,
-        type: type,
-        // 图形绘制时样式
-        style: new Style({
-          stroke: new Stroke({
-            width: 2,
-            color: 'skyblue'
-          }),
-          fill: new Fill({
-            color: [248, 172, 166, 0.11]
-          })
+      this.$set(this.form, 'areaScopeType', type === 'Polygon' ? 1 : 2)
+
+      removeInteraction()
+
+      drawGraph(type, (res) => {
+        const { areaScope, radius } = res
+        this.areaScope = areaScope.map((item) => {
+          return {
+            longitude: item[0],
+            latitude: item[1]
+          }
         })
-      })
-      this.map.addInteraction(this.interaction)
-
-      this.interaction.on('drawstart', (e) => {
-        if (this.featureTemp) {
-          this.source.removeFeature(this.featureTemp)
-        }
-      })
-      this.interaction.on('drawend', (e) => {
-        this.featureTemp = e.feature
-        this.areaScopeType = type === 'Polygon' ? 1 : 2
-
-        if (type === 'Polygon') {
-          let arr = e.feature
-            .clone()
-            .getGeometry()
-            .transform('EPSG:3857', 'EPSG:4326')
-            .getCoordinates()[0]
-          console.log('arr=>', arr, e.feature)
-          this.areaScope = arr.map((item) => {
-            return {
-              longitude: item[0],
-              latitude: item[1]
-            }
-          })
-          this.radius = ''
-        } else {
-          // 获取圆心
-          let arr = e.feature
-            .clone()
-            .getGeometry()
-            .transform('EPSG:3857', 'EPSG:4326')
-            .getCenter()
-          this.areaScope = [
-            {
-              longitude: arr[0],
-              latitude: arr[1]
-            }
-          ]
-          console.log('圆心=>', this.areaScope)
-          // 获取半径，只有圆才有值
-          this.radius = e.feature.getGeometry().getRadius()
-          console.log('半径=>', this.radius)
-        }
+        this.radius = radius
       })
     },
-    async save() {
-      if (this.interaction != undefined && this.interaction != null) {
-        this.map.removeInteraction(this.interaction)
-      }
-      const { areaScope, areaScopeType, radius } = this
-      const params = {
-        ...this.form,
-        areaScope: JSON.stringify(areaScope),
-        areaScopeType,
-        radius
-      }
-      const res = await saveArea(params)
-      console.log('save', res)
+    save(formName) {
+      this.$refs[formName].validate(async (valid) => {
+        if (valid) {
+          const { areaScope, radius } = this
+
+          const params = {
+            ...this.form,
+            areaScope: JSON.stringify(areaScope),
+            radius
+          }
+          const res = await saveArea(params)
+          console.log('save', res)
+          this.cancel()
+        }
+      })
     },
     cancel() {
+      removeInteraction()
+
       this.shapeType = ''
-      if (this.featureTemp) {
-        this.source.removeFeature(this.featureTemp)
-      }
-      if (this.interaction != undefined && this.interaction != null) {
-        this.map.removeInteraction(this.interaction)
-      }
+
       if (this.$refs.form) {
         this.$refs.form.resetFields()
       }
+    },
+    alarmClick() {
+      this.alarmShow = true
     }
   }
 }
@@ -345,7 +291,7 @@ export default {
 <style lang="scss" scoped>
 .section {
   position: absolute;
-  right: 20px;
+  right: 10px;
   bottom: 20px;
   .click-active {
     display: inline-block;
@@ -394,6 +340,7 @@ export default {
     padding-right: 16px;
   }
 }
+
 /* 按钮样式 */
 .el-button {
   i {
@@ -438,51 +385,5 @@ export default {
       color: #293038;
     }
   }
-}
-.dialog-operation {
-  justify-content: space-between;
-  align-items: center;
-}
-.dialog-operation,
-.dialog-table {
-  margin-bottom: 20px;
-}
-/* 搜索区域下拉框样式 */
-.dialog-operation select {
-  min-width: 110px;
-  height: 32px;
-}
-.dialog-operation select option {
-  color: #000;
-}
-/* 搜索区域选项样式 */
-.dialog-operation ul {
-  display: inline-block;
-  margin-left: 20px;
-}
-.dialog-operation ul li {
-  display: inline-block;
-  line-height: 32px;
-  padding: 0 20px;
-  margin-left: 8px;
-  border-radius: 4px;
-  background-color: #0c2564;
-  cursor: pointer;
-}
-.dialog-operation ul li.active {
-  background-color: #195afc;
-}
-/* 分页 */
-.pagination {
-  // display: none;
-  padding: 0 20px;
-  overflow: hidden;
-}
-.pagination a {
-  text-decoration: none;
-  color: #fff;
-}
-.pagination a:active {
-  color: rgba(255, 255, 255, 0.8) !important;
 }
 </style>
